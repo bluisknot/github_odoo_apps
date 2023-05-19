@@ -118,7 +118,8 @@ class BasicModelOpsNotification(models.AbstractModel):
     def create(self, vals_list):
         result = super().create(vals_list)
         if self._do_notify(result):
-            result._perform_notification()
+            possible_next_action = self._context.get("next_action", None)
+            result._perform_notification(next_action=possible_next_action)
         return result
 
     def write(self, vals):
@@ -139,7 +140,10 @@ class BasicModelOpsNotification(models.AbstractModel):
                 if fname not in self._non_reportable_fields
             ]
             if non_ignored:
-                self._perform_notification(operation="write", modified_fields_and_values=non_ignored)
+                possible_next_action = self._context.get("next_action", None)
+                self._perform_notification(
+                    operation="write", modified_fields_and_values=non_ignored, next_action=possible_next_action
+                )
         return result
 
     def unlink(self):
@@ -178,14 +182,17 @@ class BasicModelOpsNotification(models.AbstractModel):
         )
         if message:
             if not as_action:
+                notification_info = {
+                    "message": message,
+                    "type": self._success_notification_type if successfull else self._failure_notification_type,
+                    "sticky": self._sticky_notification,
+                }
+                if next_action:
+                    notification_info["next"] = next_action
                 self.env[BUS_MODEL_NAME]._sendone(
                     self.env.user.partner_id,
                     "notify-record-operation",
-                    {
-                        "message": message,
-                        "type": self._success_notification_type if successfull else self._failure_notification_type,
-                        "sticky": self._sticky_notification,
-                    },
+                    notification_info,
                 )
                 _logger_message = f'Notification performed for model "{self._name}" on "{operation}" operation.'
                 if modified_fields_and_values:
